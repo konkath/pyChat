@@ -1,27 +1,37 @@
 import socket
 import sys
-from time import sleep
+from threading import Thread
 
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-server_address = (sys.argv[1], int(sys.argv[2]))
-sock.connect(server_address)
+class Client:
+    def __init__(self):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-try:
-    print(sys.stdout, 'You are now chatting, say hello!')
-    while True:
+        server_address = (sys.argv[1], int(sys.argv[2]))
+        self.sock.connect(server_address)
 
-        message = input()
-        sock.send(bytes(message, 'utf-8'))
+        thread = Thread(target=self.get_msg)
+        thread.start()
 
-        amount_received = 0
-        amount_expected = len(message)
-        while amount_received < amount_expected:
-            data = sock.recv(4096)
-            amount_received += len(data)
-            print(sys.stdout, 'received ', str(data))
+        self.send_msg()
 
-        sleep(1)
-finally:
-    print(sys.stderr, 'closing socket')
-    sock.close()
+        # TODO join thread
+        print('ending init')
+        self.sock.close()
+
+    def send_msg(self):
+        print(sys.stdout, 'You are now chatting, say hello!')
+
+        try:
+            while True:
+                message = input()
+                self.sock.sendall(bytes(message, 'utf-8'))
+        finally:
+            print(sys.stderr, 'finally send_msg')
+
+    def get_msg(self):
+        while True:
+            data = self.sock.recv(4096)
+            print(sys.stdout, str(data))
+
+Client()
