@@ -11,9 +11,16 @@ message_que = []
 
 class ClientHandler:
     handled_que_size = 0
+    connection = None
+    p = 23
+    g = 5
+    a = None
+    b = 15
+    s = None
 
     def __init__(self, connection):
         self.connection = connection
+        self.exchange_params()
 
         print(sys.stdout, 'client connected')
         thread = Thread(target=self.wait_for_msg)
@@ -24,6 +31,27 @@ class ClientHandler:
         # TODO clean thread from clients array
         print(sys.stderr, 'end of init')
         self.connection.close()
+
+    def exchange_params(self):
+        data = json.loads(self.connection.recv(4096).decode())
+        if Header.req.value in data:
+            json_msg = json.dumps({Header.p.value: self.p, Header.g.value: self.g}).encode()
+            self.connection.sendall(bytes(json_msg))
+        else:
+            # TODO Wrong starting request?
+            pass
+
+        json_msg = json.dumps({Header.b.value: self.b}).encode()
+        self.connection.sendall(bytes(json_msg))
+
+        data = json.loads(self.connection.recv(4096).decode())
+        if Header.a.value in data:
+            self.a = data[Header.a.value]
+        else:
+            # TODO No a?
+            pass
+
+        print(sys.stderr, 'params exchanged')
 
     def wait_for_msg(self):
         try:
@@ -41,7 +69,10 @@ class ClientHandler:
                     correct_msg = True
 
                 if Header.msg.value in data:
-                    message_que.append(data['msg'])
+                    if Header.who.value in data:
+                        message_que.append([data[Header.who.value], data[Header.msg.value]])
+                    else:
+                        message_que.append([None, data[Header.msg.value]])
                     correct_msg = True
 
                 if not correct_msg:
@@ -56,7 +87,14 @@ class ClientHandler:
                     sleep(0.2)  # seconds
                 else:
                     print(sys.stdout, 'sending', message_que[self.handled_que_size])
-                    json_msg = json.dumps({Header.msg.value:  message_que[self.handled_que_size]}).encode()
+                    msg = message_que[self.handled_que_size][1]
+                    who = message_que[self.handled_que_size][0]
+
+                    if who:
+                        json_msg = json.dumps({Header.msg.value: msg, Header.who.value: who}).encode()
+                    else:
+                        json_msg = json.dumps({Header.msg.value: msg}).encode()
+
                     self.connection.sendall(bytes(json_msg))
                     self.handled_que_size += 1
         finally:

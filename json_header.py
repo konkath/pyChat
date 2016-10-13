@@ -10,3 +10,4 @@ class Header(Enum):
     b = 'b'
     enc = 'encryption'
     msg = 'msg'
+    who = 'from'
