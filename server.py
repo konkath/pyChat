@@ -2,6 +2,8 @@ import socket
 import sys
 from asyncio.tasks import sleep
 from threading import Thread
+import json
+from lab1.json_header import Header
 
 clients = []
 message_que = []
@@ -26,14 +28,24 @@ class ClientHandler:
     def wait_for_msg(self):
         try:
             while True:
-                data = self.connection.recv(4096)
+                data = json.loads(self.connection.recv(4096).decode())
                 print(sys.stdout, 'received ', data)
 
-                if data:
-                    message_que.append(str(data))
-                else:
-                    print(sys.stderr, 'break wait_for_msg')
-                    break
+                correct_msg = False
+                if Header.a.value in data:
+                    # TODO
+                    correct_msg = True
+
+                if Header.enc.value in data:
+                    # TODO
+                    correct_msg = True
+
+                if Header.msg.value in data:
+                    message_que.append(data['msg'])
+                    correct_msg = True
+
+                if not correct_msg:
+                    print(sys.stderr, 'unknown header')
         finally:
             print(sys.stderr, 'finally wait_for_msg')
 
@@ -44,7 +56,8 @@ class ClientHandler:
                     sleep(0.2)  # seconds
                 else:
                     print(sys.stdout, 'sending', message_que[self.handled_que_size])
-                    self.connection.sendall(bytes(message_que[self.handled_que_size], 'utf-8'))
+                    json_msg = json.dumps({Header.msg.value:  message_que[self.handled_que_size]}).encode()
+                    self.connection.sendall(bytes(json_msg))
                     self.handled_que_size += 1
         finally:
             print(sys.stderr, 'finally send_msg')
