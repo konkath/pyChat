@@ -2,6 +2,8 @@ import socket
 import sys
 from threading import Thread
 import json
+
+from lab1.coder import get_secret
 from lab1.json_header import Header
 
 
@@ -55,6 +57,8 @@ class Client:
             if Header.b.value in data:
                 self.b = data[Header.b.value]
 
+        self.s = get_secret(self.p, self.g, self.b)
+        print(sys.stderr, 'got secret', self.s)
         print(sys.stderr, 'params exchanged')
 
     def send_msg(self):
@@ -72,17 +76,17 @@ class Client:
         while True:
             data = json.loads(self.sock.recv(4096).decode())
 
-            if Header.p.value in data:
-                self.p = Header.p.value
-                # TODO recalculate s
+            if Header.p.value in data or Header.g.value in data or Header.b.value in data:
+                if Header.p.value in data:
+                    self.p = Header.p.value
 
-            if Header.g.value in data:
-                self.g = Header.g.value
-                # TODO recalculate s
+                if Header.g.value in data:
+                    self.g = Header.g.value
 
-            if Header.b.value in data:
-                self.b = Header.b.value
-                # TODO recalculate s
+                if Header.b.value in data:
+                    self.b = Header.b.value
+
+                self.s = get_secret(self.p, self.g, self.b)
 
             if Header.msg.value and Header.who.value in data:
                 print(sys.stdout, '[' + data[Header.who.value] + ']: ' + data[Header.msg.value])

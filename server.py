@@ -3,6 +3,8 @@ import sys
 from asyncio.tasks import sleep
 from threading import Thread
 import json
+
+from lab1.coder import get_secret
 from lab1.json_header import Header
 
 clients = []
@@ -12,7 +14,8 @@ message_que = []
 class ClientHandler:
     handled_que_size = 0
     connection = None
-    p = 23
+    # 23 409 7919
+    p = 409
     g = 5
     a = None
     b = 15
@@ -51,6 +54,8 @@ class ClientHandler:
             # TODO No a?
             pass
 
+        self.s = get_secret(self.p, self.g, self.b)
+        print(sys.stderr, 'got secret', self.s)
         print(sys.stderr, 'params exchanged')
 
     def wait_for_msg(self):
@@ -61,8 +66,8 @@ class ClientHandler:
 
                 correct_msg = False
                 if Header.a.value in data:
-                    # TODO
                     correct_msg = True
+                    self.s = get_secret(self.p, self.g, self.a)
 
                 if Header.enc.value in data:
                     # TODO
