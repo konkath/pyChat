@@ -12,6 +12,20 @@ clients = []
 message_que = []
 
 
+class Message:
+    who = None
+    msg = None
+    id = None
+
+    def __init__(self, who, msg, id):
+        self.who = who
+        self.msg = msg
+        self.id = id
+
+    def __str__(self):
+        return '[' + self.who + ']: ' + self.msg
+
+
 class ClientHandler:
     handled_que_size = 0
     connection = None
@@ -21,9 +35,11 @@ class ClientHandler:
     a = None
     b = 15
     s = None
+    id = None
 
-    def __init__(self, connection):
+    def __init__(self, connection, thread_id):
         self.connection = connection
+        self.id = thread_id
         self.exchange_params()
 
         print(sys.stdout, 'client connected')
@@ -79,9 +95,9 @@ class ClientHandler:
                     print(sys.stdout, 'decrypted: ', msg)
 
                     if Header.who.value in data:
-                        message_que.append([data[Header.who.value], str(msg)])
+                        message_que.append(Message(data[Header.who.value], str(msg), self.id))
                     else:
-                        message_que.append([None, str(msg)])
+                        message_que.append(Message(None, str(msg), self.id))
                     correct_msg = True
 
                 if not correct_msg:
@@ -95,16 +111,17 @@ class ClientHandler:
                 if self.handled_que_size == len(message_que):
                     sleep(0.2)  # seconds
                 else:
-                    print(sys.stdout, 'sending', message_que[self.handled_que_size])
-                    msg = base64.b64encode(bytes((message_que[self.handled_que_size][1]).encode()))
-                    who = message_que[self.handled_que_size][0]
+                    if message_que[self.handled_que_size].id != self.id:
+                        print(sys.stdout, 'sending', message_que[self.handled_que_size])
+                        msg = base64.b64encode(bytes(message_que[self.handled_que_size].msg.encode()))
+                        who = message_que[self.handled_que_size].who
 
-                    if who:
-                        json_msg = json.dumps({Header.msg.value: msg.decode(), Header.who.value: who}).encode()
-                    else:
-                        json_msg = json.dumps({Header.msg.value: msg.decode()}).encode()
+                        if who:
+                            json_msg = json.dumps({Header.msg.value: msg.decode(), Header.who.value: who}).encode()
+                        else:
+                            json_msg = json.dumps({Header.msg.value: msg.decode()}).encode()
 
-                    self.connection.sendall(bytes(json_msg))
+                        self.connection.sendall(bytes(json_msg))
                     self.handled_que_size += 1
         finally:
             print(sys.stderr, 'finally send_msg')
@@ -117,12 +134,14 @@ def main():
     sock.bind(server_address)
     sock.listen()
 
+    thread_id = 0
     while True:
         print(sys.stderr, 'waiting for a connection')
         connection, client_address = sock.accept()
 
-        thread = Thread(target=ClientHandler, args=(connection, ))
+        thread = Thread(target=ClientHandler, args=(connection, thread_id, ))
         thread.start()
         clients.append(thread)
+        thread_id += 1
 
 main()
