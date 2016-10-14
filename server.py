@@ -1,3 +1,4 @@
+import base64
 import socket
 import sys
 from asyncio.tasks import sleep
@@ -74,10 +75,13 @@ class ClientHandler:
                     correct_msg = True
 
                 if Header.msg.value in data:
+                    msg = base64.b64decode(data[Header.msg.value])
+                    print(sys.stdout, 'decrypted: ', msg)
+
                     if Header.who.value in data:
-                        message_que.append([data[Header.who.value], data[Header.msg.value]])
+                        message_que.append([data[Header.who.value], str(msg)])
                     else:
-                        message_que.append([None, data[Header.msg.value]])
+                        message_que.append([None, str(msg)])
                     correct_msg = True
 
                 if not correct_msg:
@@ -92,13 +96,13 @@ class ClientHandler:
                     sleep(0.2)  # seconds
                 else:
                     print(sys.stdout, 'sending', message_que[self.handled_que_size])
-                    msg = message_que[self.handled_que_size][1]
+                    msg = base64.b64encode(bytes((message_que[self.handled_que_size][1]).encode()))
                     who = message_que[self.handled_que_size][0]
 
                     if who:
-                        json_msg = json.dumps({Header.msg.value: msg, Header.who.value: who}).encode()
+                        json_msg = json.dumps({Header.msg.value: msg.decode(), Header.who.value: who}).encode()
                     else:
-                        json_msg = json.dumps({Header.msg.value: msg}).encode()
+                        json_msg = json.dumps({Header.msg.value: msg.decode()}).encode()
 
                     self.connection.sendall(bytes(json_msg))
                     self.handled_que_size += 1

@@ -1,3 +1,4 @@
+import base64
 import socket
 import sys
 from threading import Thread
@@ -67,7 +68,9 @@ class Client:
         try:
             while True:
                 message = input()
-                json_msg = json.dumps({Header.msg.value: message, Header.who.value: self.myName}).encode()
+                b64_msg = base64.b64encode(bytes(message.encode()))             # base64 wants ascii
+                json_msg = json.dumps({Header.msg.value: b64_msg.decode(),      # json wants utf-8
+                                       Header.who.value: self.myName}).encode()
                 self.sock.sendall(bytes(json_msg))
         finally:
             print(sys.stderr, 'finally send_msg')
@@ -88,9 +91,11 @@ class Client:
 
                 self.s = get_secret(self.p, self.g, self.b)
 
-            if Header.msg.value and Header.who.value in data:
-                print(sys.stdout, '[' + data[Header.who.value] + ']: ' + data[Header.msg.value])
-            elif Header.msg.value in data:
-                print(sys.stdout, '[anon]: ' + data[Header.msg.value])
+            if Header.msg.value in data:
+                msg = base64.b64decode(data[Header.msg.value])
+                if Header.who.value in data:
+                    print(sys.stdout, '[' + data[Header.who.value] + ']: ' + str(msg))
+                else:
+                    print(sys.stdout, '[anon]: ' + msg)
 
 Client()
