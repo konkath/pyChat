@@ -5,8 +5,8 @@ from asyncio.tasks import sleep
 from threading import Thread
 import json
 
-from lab1.coder import get_secret
-from lab1.json_header import Header
+from lab1.coder import get_secret, handle_resp_message, prepare_message_to_send
+from lab1.enums import Header, Encode
 
 clients = []
 message_que = []
@@ -29,6 +29,7 @@ class Message:
 class ClientHandler:
     handled_que_size = 0
     connection = None
+    encode = None
     # 23 409 7919
     p = 409
     g = 5
@@ -40,6 +41,8 @@ class ClientHandler:
     def __init__(self, connection, thread_id):
         self.connection = connection
         self.id = thread_id
+        self.encode = Encode.xor.value
+
         self.exchange_params()
 
         print(sys.stdout, 'client connected')
@@ -87,11 +90,11 @@ class ClientHandler:
                     self.s = get_secret(self.p, self.g, self.a)
 
                 if Header.enc.value in data:
-                    # TODO
                     correct_msg = True
+                    self.encode = data[Header.enc.value]
 
                 if Header.msg.value in data:
-                    msg = base64.b64decode(data[Header.msg.value])
+                    msg = handle_resp_message(self.encode, self.s, data[Header.msg.value])
                     print(sys.stdout, 'decrypted: ', msg)
 
                     if Header.who.value in data:
@@ -112,16 +115,11 @@ class ClientHandler:
                     sleep(0.2)  # seconds
                 else:
                     if message_que[self.handled_que_size].id != self.id:
-                        print(sys.stdout, 'sending', message_que[self.handled_que_size])
-                        msg = base64.b64encode(bytes(message_que[self.handled_que_size].msg.encode()))
+                        msg = message_que[self.handled_que_size].msg
                         who = message_que[self.handled_que_size].who
+                        print(sys.stdout, 'sending [' + who + ']: ' + msg)
 
-                        if who:
-                            json_msg = json.dumps({Header.msg.value: msg.decode(), Header.who.value: who}).encode()
-                        else:
-                            json_msg = json.dumps({Header.msg.value: msg.decode()}).encode()
-
-                        self.connection.sendall(bytes(json_msg))
+                        self.connection.sendall(prepare_message_to_send(self.encode, self.s, msg, who))
                     self.handled_que_size += 1
         finally:
             print(sys.stderr, 'finally send_msg')

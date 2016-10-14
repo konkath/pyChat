@@ -1,16 +1,16 @@
-import base64
 import socket
 import sys
 from threading import Thread
 import json
 
-from lab1.coder import get_secret
-from lab1.json_header import Header
+from lab1.coder import get_secret, handle_resp_message, prepare_message_to_send
+from lab1.enums import Header, Encode
 
 
 class Client:
     myName = None
     sock = None
+    encode = None
     p = None
     g = None
     a = 6
@@ -19,6 +19,8 @@ class Client:
 
     def __init__(self):
         self.myName = sys.argv[3]
+        self.encode = Encode.xor.value
+
         self.init_connection()
         self.exchange_params()
 
@@ -68,10 +70,7 @@ class Client:
         try:
             while True:
                 message = input()
-                b64_msg = base64.b64encode(bytes(message.encode()))             # base64 wants ascii
-                json_msg = json.dumps({Header.msg.value: b64_msg.decode(),      # json wants utf-8
-                                       Header.who.value: self.myName}).encode()
-                self.sock.sendall(bytes(json_msg))
+                self.sock.sendall(prepare_message_to_send(self.encode, self.s, message, self.myName))
         finally:
             print(sys.stderr, 'finally send_msg')
 
@@ -92,7 +91,7 @@ class Client:
                 self.s = get_secret(self.p, self.g, self.b)
 
             if Header.msg.value in data:
-                msg = base64.b64decode(data[Header.msg.value])
+                msg = handle_resp_message(self.encode, self.s, data[Header.msg.value])
                 if Header.who.value in data:
                     print(sys.stdout, '[' + data[Header.who.value] + ']: ' + str(msg))
                 else:

@@ -11,3 +11,9 @@ class Header(Enum):
     enc = 'encryption'
     msg = 'msg'
     who = 'from'
+
+
+class Encode(Enum):
+    none = 'none'
+    xor = 'xor'
+    caesar = 'caesar'
