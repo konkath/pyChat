@@ -31,7 +31,7 @@ class ClientHandler:
     connection = None
     encode = None
     # 23 409 7919
-    p = 409
+    p = 7919
     g = 5
     a = None
     b = 15
@@ -64,7 +64,7 @@ class ClientHandler:
             # TODO Wrong starting request?
             pass
 
-        json_msg = json.dumps({Header.b.value: self.b}).encode()
+        json_msg = json.dumps({Header.b.value: get_secret(self.p, self.g, self.b)}).encode()
         self.connection.sendall(bytes(json_msg))
 
         data = json.loads(self.connection.recv(4096).decode())
@@ -74,20 +74,21 @@ class ClientHandler:
             # TODO No a?
             pass
 
-        self.s = get_secret(self.p, self.g, self.b)
+        self.s = get_secret(self.p, self.a, self.b)
         print(sys.stderr, 'got secret', self.s)
         print(sys.stderr, 'params exchanged')
 
     def refresh_secret(self):
         # TODO recalculate before sending
-        json_msg = json.dumps({Header.p.value: self.p, Header.g.value: self.g, Header.b.value: self.b}).encode()
+        json_msg = json.dumps({Header.p.value: self.p, Header.g.value: self.g,
+                               Header.b.value: get_secret(self.p, self.g, self.b)}).encode()
         self.connection.sendall(bytes(json_msg))
 
         data = json.loads(self.connection.recv(4096).decode())
         if Header.a.value in data:
             self.a = data[Header.a.value]
 
-        self.s = get_secret(self.p, self.g, self.b)
+        self.s = get_secret(self.p, self.a, self.b)
         print(sys.stderr, 'recalculated secret', self.s)
 
     def wait_for_msg(self):

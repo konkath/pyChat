@@ -7,13 +7,13 @@ import sys
 from lab1.enums import Encode, Header
 
 
-def get_secret(p, g, a):
+def get_secret(prime, base, power):
     mod = 1
 
     i = 0
-    while i < a:
-        current = g * mod
-        mod = current % p
+    while i < power:
+        current = base * mod
+        mod = current % prime
         i += 1
     return mod
 

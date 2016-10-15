@@ -52,7 +52,7 @@ class Client:
             if Header.g.value in data:
                 self.g = data[Header.g.value]
 
-        json_msg = json.dumps({Header.a.value: self.a}).encode()
+        json_msg = json.dumps({Header.a.value: get_secret(self.p, self.g, self.a)}).encode()
         self.sock.sendall(bytes(json_msg))
 
         while not self.b:
@@ -60,7 +60,7 @@ class Client:
             if Header.b.value in data:
                 self.b = data[Header.b.value]
 
-        self.s = get_secret(self.p, self.g, self.b)
+        self.s = get_secret(self.p, self.b, self.a)
         print(sys.stderr, 'got secret', self.s)
         print(sys.stderr, 'params exchanged')
 
@@ -105,10 +105,10 @@ class Client:
                     self.b = data[Header.b.value]
 
                 # TODO recalculate a
-                json_msg = json.dumps({Header.a.value: self.a}).encode()
+                json_msg = json.dumps({Header.a.value: get_secret(self.p, self.g, self.a)}).encode()
                 self.sock.sendall(bytes(json_msg))
 
-                self.s = get_secret(self.p, self.g, self.b)
+                self.s = get_secret(self.p, self.b, self.a)
                 print(sys.stdout, 'recalculated secret: ', self.s)
 
             if Header.msg.value in data:
