@@ -1,5 +1,6 @@
 import socket
 import sys
+from random import randint
 from threading import Thread
 import json
 
@@ -11,10 +12,12 @@ class Client:
     myName = None
     sock = None
     encode = None
-    p = None
-    g = None
-    a = 6
-    b = None
+    smallest_a = 2
+    largest_a = 100
+    p = None    # Client don't have this
+    g = None    # Client don't have this
+    a = None
+    b = None    # Client don't have this
     s = None
 
     def __init__(self):
@@ -52,6 +55,7 @@ class Client:
             if Header.g.value in data:
                 self.g = data[Header.g.value]
 
+        self.a = randint(self.smallest_a, self.largest_a)
         json_msg = json.dumps({Header.a.value: get_secret(self.p, self.g, self.a)}).encode()
         self.sock.sendall(bytes(json_msg))
 
@@ -104,7 +108,7 @@ class Client:
                 if Header.b.value in data:
                     self.b = data[Header.b.value]
 
-                # TODO recalculate a
+                self.a = randint(self.smallest_a, self.largest_a)
                 json_msg = json.dumps({Header.a.value: get_secret(self.p, self.g, self.a)}).encode()
                 self.sock.sendall(bytes(json_msg))
 

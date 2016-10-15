@@ -1,11 +1,11 @@
-import base64
 import socket
 import sys
 from asyncio.tasks import sleep
+from random import randint
 from threading import Thread
 import json
 
-from lab1.coder import get_secret, handle_resp_message, prepare_message_to_send
+from lab1.coder import get_secret, handle_resp_message, prepare_message_to_send, get_closest_prime
 from lab1.enums import Header, Encode
 
 clients = []
@@ -30,11 +30,15 @@ class ClientHandler:
     handled_que_size = 0
     connection = None
     encode = None
-    # 23 409 7919
-    p = 7919
-    g = 5
-    a = None
-    b = 15
+    smallest_generator = 2
+    smallest_prime = 256
+    largest_prime = 1000000
+    smallest_b = 2
+    largest_b = 100
+    p = None
+    g = None
+    a = None    # Server don't have this
+    b = None
     s = None
     id = None
 
@@ -55,7 +59,14 @@ class ClientHandler:
         print(sys.stderr, 'end of init')
         self.connection.close()
 
+    def randomize_secrets(self):
+        self.p = get_closest_prime(randint(self.smallest_prime, self.largest_prime))
+        self.g = randint(self.smallest_generator, self.p - 1)
+        self.b = randint(self.smallest_b, self.largest_b)
+
     def exchange_params(self):
+        self.randomize_secrets()
+
         data = json.loads(self.connection.recv(4096).decode())
         if Header.req.value in data:
             json_msg = json.dumps({Header.p.value: self.p, Header.g.value: self.g}).encode()
@@ -79,7 +90,8 @@ class ClientHandler:
         print(sys.stderr, 'params exchanged')
 
     def refresh_secret(self):
-        # TODO recalculate before sending
+        self.randomize_secrets()
+
         json_msg = json.dumps({Header.p.value: self.p, Header.g.value: self.g,
                                Header.b.value: get_secret(self.p, self.g, self.b)}).encode()
         self.connection.sendall(bytes(json_msg))
