@@ -3,6 +3,7 @@ import json
 from _operator import xor
 
 import sys
+from cmath import sqrt
 
 from lab1.enums import Encode, Header
 
@@ -16,6 +17,20 @@ def get_secret(prime, base, power):
         mod = current % prime
         i += 1
     return mod
+
+
+def get_closest_prime(number):
+    if number > 1:
+        while True:
+            for i in range(2, int(number / 2)):
+                if (number % i) == 0:
+                    number += 1
+                    break
+            else:
+                print(number)
+                return number
+    else:
+        return 1
 
 
 def prepare_message_to_send(encode, secret, msg, sender=None):
@@ -78,3 +93,5 @@ def decrypt_caesar(secret, msg):
         coded_msg += chr((ord(m) - (0xFF & secret)) % 0xFF)
 
     return coded_msg
+
+get_closest_prime(900)
