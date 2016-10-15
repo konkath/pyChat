@@ -78,6 +78,18 @@ class ClientHandler:
         print(sys.stderr, 'got secret', self.s)
         print(sys.stderr, 'params exchanged')
 
+    def refresh_secret(self):
+        # TODO recalculate before sending
+        json_msg = json.dumps({Header.p.value: self.p, Header.g.value: self.g, Header.b.value: self.b}).encode()
+        self.connection.sendall(bytes(json_msg))
+
+        data = json.loads(self.connection.recv(4096).decode())
+        if Header.a.value in data:
+            self.a = data[Header.a.value]
+
+        self.s = get_secret(self.p, self.g, self.b)
+        print(sys.stderr, 'recalculated secret', self.s)
+
     def wait_for_msg(self):
         try:
             while True:
@@ -85,13 +97,16 @@ class ClientHandler:
                 print(sys.stdout, 'received ', data)
 
                 correct_msg = False
-                if Header.a.value in data:
+                if Header.req.value in data:
                     correct_msg = True
-                    self.s = get_secret(self.p, self.g, self.a)
+                    self.refresh_secret()
 
                 if Header.enc.value in data:
                     correct_msg = True
-                    self.encode = data[Header.enc.value]
+                    if data[Header.enc.value] in Encode.__members__:
+                        self.encode = Encode[data[Header.enc.value]].value
+                    else:
+                        print(sys.stderr, "not supported encoding")     # TODO inform client?
 
                 if Header.msg.value in data:
                     msg = handle_resp_message(self.encode, self.s, data[Header.msg.value])

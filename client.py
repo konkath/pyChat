@@ -70,7 +70,23 @@ class Client:
         try:
             while True:
                 message = input()
-                self.sock.sendall(prepare_message_to_send(self.encode, self.s, message, self.myName))
+
+                if "/enc " in message:
+                    splitted = message.split(" ")
+
+                    print(splitted[1])
+                    if splitted[1] in Encode.__members__:
+                        self.encode = Encode[splitted[1]].value
+                        json_msg = json.dumps({Header.enc.value: splitted[1]}).encode()
+                        self.sock.sendall(bytes(json_msg))
+                    else:
+                        print(sys.stderr, 'not supported encryption')
+                elif "/keys" in message:
+                    json_msg = json.dumps({Header.req.value: Header.keys.value}).encode()
+                    self.sock.sendall(bytes(json_msg))
+                    # get_msg will handle rest of scenario
+                else:
+                    self.sock.sendall(prepare_message_to_send(self.encode, self.s, message, self.myName))
         finally:
             print(sys.stderr, 'finally send_msg')
 
@@ -80,15 +96,20 @@ class Client:
 
             if Header.p.value in data or Header.g.value in data or Header.b.value in data:
                 if Header.p.value in data:
-                    self.p = Header.p.value
+                    self.p = data[Header.p.value]
 
                 if Header.g.value in data:
-                    self.g = Header.g.value
+                    self.g = data[Header.g.value]
 
                 if Header.b.value in data:
-                    self.b = Header.b.value
+                    self.b = data[Header.b.value]
+
+                # TODO recalculate a
+                json_msg = json.dumps({Header.a.value: self.a}).encode()
+                self.sock.sendall(bytes(json_msg))
 
                 self.s = get_secret(self.p, self.g, self.b)
+                print(sys.stdout, 'recalculated secret: ', self.s)
 
             if Header.msg.value in data:
                 msg = handle_resp_message(self.encode, self.s, data[Header.msg.value])
