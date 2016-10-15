@@ -61,8 +61,20 @@ def xor_coder(secret, msg):
 
 
 def encrypt_caesar(secret, msg):
-    return msg
+    coded_msg = ""
+    for m in msg:
+        # str m must be casted to ascii (ord) to shift it by last byte of secret
+        # result is normalized using modulo
+        coded_msg += chr(((0xFF & secret) + ord(m)) % 0xFF)
+
+    return coded_msg
 
 
 def decrypt_caesar(secret, msg):
-    return msg
+    coded_msg = ""
+    for m in msg:
+        # str m must be casted to ascii (ord) to shift it by last byte of secret
+        # result is normalized using modulo
+        coded_msg += chr((ord(m) - (0xFF & secret)) % 0xFF)
+
+    return coded_msg
