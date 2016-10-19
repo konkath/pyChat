@@ -4,8 +4,9 @@ from random import randint
 from threading import Thread
 import json
 
-from lab1.coder import get_secret, handle_resp_message, prepare_message_to_send
+from lab1.coder import get_secret
 from lab1.enums import Header, Encode
+from lab1.msg_helper import handle_resp_message, prepare_message_to_send, receive_message
 
 
 class Client:
@@ -48,7 +49,7 @@ class Client:
 
         # In case server gives p and g in separate messages
         while not self.p or not self.g:
-            data = json.loads(self.sock.recv(4096).decode())
+            data = receive_message(self.sock)
             if Header.p.value in data:
                 self.p = data[Header.p.value]
 
@@ -60,7 +61,7 @@ class Client:
         self.sock.sendall(bytes(json_msg))
 
         while not self.b:
-            data = json.loads(self.sock.recv(4096).decode())
+            data = receive_message(self.sock)
             if Header.b.value in data:
                 self.b = data[Header.b.value]
 
@@ -96,7 +97,7 @@ class Client:
 
     def get_msg(self):
         while True:
-            data = json.loads(self.sock.recv(4096).decode())
+            data = receive_message(self.sock)
 
             if Header.p.value in data or Header.g.value in data or Header.b.value in data:
                 if Header.p.value in data:

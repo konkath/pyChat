@@ -5,8 +5,9 @@ from random import randint
 from threading import Thread
 import json
 
-from lab1.coder import get_secret, handle_resp_message, prepare_message_to_send, get_closest_prime
+from lab1.coder import get_secret, get_closest_prime
 from lab1.enums import Header, Encode
+from lab1.msg_helper import handle_resp_message, prepare_message_to_send, receive_message
 
 clients = []
 message_que = []
@@ -28,7 +29,7 @@ class Message:
 
 class ClientHandler:
     handled_que_size = 0
-    connection = None
+    sock = None
     encode = None
     smallest_generator = 2
     smallest_prime = 256
@@ -43,7 +44,7 @@ class ClientHandler:
     id = None
 
     def __init__(self, connection, thread_id):
-        self.connection = connection
+        self.sock = connection
         self.id = thread_id
         self.encode = Encode.xor.value
 
@@ -57,7 +58,7 @@ class ClientHandler:
 
         # TODO clean thread from clients array
         print(sys.stderr, 'end of init')
-        self.connection.close()
+        self.sock.close()
 
     def randomize_secrets(self):
         self.p = get_closest_prime(randint(self.smallest_prime, self.largest_prime))
@@ -67,18 +68,18 @@ class ClientHandler:
     def exchange_params(self):
         self.randomize_secrets()
 
-        data = json.loads(self.connection.recv(4096).decode())
+        data = receive_message(self.sock)
         if Header.req.value in data:
             json_msg = json.dumps({Header.p.value: self.p, Header.g.value: self.g}).encode()
-            self.connection.sendall(bytes(json_msg))
+            self.sock.sendall(bytes(json_msg))
         else:
             # TODO Wrong starting request?
             pass
 
         json_msg = json.dumps({Header.b.value: get_secret(self.p, self.g, self.b)}).encode()
-        self.connection.sendall(bytes(json_msg))
+        self.sock.sendall(bytes(json_msg))
 
-        data = json.loads(self.connection.recv(4096).decode())
+        data = receive_message(self.sock)
         if Header.a.value in data:
             self.a = data[Header.a.value]
         else:
@@ -94,9 +95,9 @@ class ClientHandler:
 
         json_msg = json.dumps({Header.p.value: self.p, Header.g.value: self.g,
                                Header.b.value: get_secret(self.p, self.g, self.b)}).encode()
-        self.connection.sendall(bytes(json_msg))
+        self.sock.sendall(bytes(json_msg))
 
-        data = json.loads(self.connection.recv(4096).decode())
+        data = receive_message(self.sock)
         if Header.a.value in data:
             self.a = data[Header.a.value]
 
@@ -106,7 +107,7 @@ class ClientHandler:
     def wait_for_msg(self):
         try:
             while True:
-                data = json.loads(self.connection.recv(4096).decode())
+                data = receive_message(self.sock)
                 print(sys.stdout, 'received ', data)
 
                 correct_msg = False
@@ -147,7 +148,7 @@ class ClientHandler:
                         who = message_que[self.handled_que_size].who
                         print(sys.stdout, 'sending [' + who + ']: ' + msg)
 
-                        self.connection.sendall(prepare_message_to_send(self.encode, self.s, msg, who))
+                        self.sock.sendall(prepare_message_to_send(self.encode, self.s, msg, who))
                     self.handled_que_size += 1
         finally:
             print(sys.stderr, 'finally send_msg')
