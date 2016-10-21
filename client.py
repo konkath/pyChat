@@ -4,7 +4,7 @@ from random import randint
 from threading import Thread
 import json
 
-from lab1.coder import get_secret
+from lab1.coder import get_secret, is_prime
 from lab1.enums import Header, Encode
 from lab1.msg_helper import handle_resp_message, prepare_message_to_send, receive_message
 
@@ -23,29 +23,39 @@ class Client:
 
     def __init__(self):
         self.myName = sys.argv[3]
-        self.encode = Encode.xor.value
+        self.encode = Encode.none.value
 
-        self.init_connection()
-        self.exchange_params()
+        try:
+            self.init_connection()
+            self.exchange_params()
+        except ConnectionAbortedError:
+            self.sock.close()
+            return
 
-        thread = Thread(target=self.get_msg)
-        thread.start()
+        thread = Thread(target=self.send_msg)
+        thread.daemon = True    # thread can be daemonized as it doesn't hold any resources and it has blocking context
+        thread.start()          # (reading from stdin)
 
-        self.send_msg()
-
-        # TODO join thread
-        print('ending init')
+        self.get_msg()
         self.sock.close()
 
     def init_connection(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         server_address = (sys.argv[1], int(sys.argv[2]))
-        self.sock.connect(server_address)
+
+        try:
+            self.sock.connect(server_address)
+        except ConnectionRefusedError:
+            print(sys.stderr, 'Cant connect to the server - closing')
+            raise ConnectionAbortedError
 
     def exchange_params(self):
         json_msg = json.dumps({Header.req.value: Header.keys.value}).encode()
-        self.sock.sendall(bytes(json_msg))
+        try:
+            self.sock.sendall(bytes(json_msg))
+        except ConnectionResetError:
+            raise ConnectionAbortedError
 
         # In case server gives p and g in separate messages
         while not self.p or not self.g:
@@ -53,8 +63,14 @@ class Client:
             if Header.p.value in data:
                 self.p = data[Header.p.value]
 
+                if not is_prime(self.p):
+                    raise ConnectionAbortedError
+
             if Header.g.value in data:
                 self.g = data[Header.g.value]
+
+                if self.g < 1 or self.g >= self.p:
+                    raise ConnectionAbortedError
 
         self.a = randint(self.smallest_a, self.largest_a)
         json_msg = json.dumps({Header.a.value: get_secret(self.p, self.g, self.a)}).encode()
@@ -66,16 +82,15 @@ class Client:
                 self.b = data[Header.b.value]
 
         self.s = get_secret(self.p, self.b, self.a)
-        print(sys.stderr, 'got secret', self.s)
         print(sys.stderr, 'params exchanged')
 
     def send_msg(self):
         print(sys.stdout, 'You are now chatting, say hello!')
 
-        try:
-            while True:
-                message = input()
+        while True:
+            message = input()
 
+            try:
                 if "/enc " in message:
                     splitted = message.split(" ")
 
@@ -90,14 +105,26 @@ class Client:
                     json_msg = json.dumps({Header.req.value: Header.keys.value}).encode()
                     self.sock.sendall(bytes(json_msg))
                     # get_msg will handle rest of scenario
+                elif "/q" in message:
+                    self.sock.close()   # shouldn't terminate program like that but... exceptions will do rest
                 else:
                     self.sock.sendall(prepare_message_to_send(self.encode, self.s, message, self.myName))
-        finally:
-            print(sys.stderr, 'finally send_msg')
+            except ConnectionResetError:
+                print(sys.stderr, 'Server closed - closing connection')
+
+    def check_params(self):
+        if not is_prime(self.p) or self.g < 1 or self.g >= self.p or self.b < 1:
+            return False
+
+        return True
 
     def get_msg(self):
         while True:
-            data = receive_message(self.sock)
+            try:
+                data = receive_message(self.sock)
+            except ConnectionError:
+                print(sys.stderr, 'Server closed connection')
+                return
 
             if Header.p.value in data or Header.g.value in data or Header.b.value in data:
                 if Header.p.value in data:
@@ -109,11 +136,25 @@ class Client:
                 if Header.b.value in data:
                     self.b = data[Header.b.value]
 
+                if not self.check_params():
+                    print(sys.stderr, 'Got wrong parameters - Closing connection')
+                    return
+
                 self.a = randint(self.smallest_a, self.largest_a)
                 json_msg = json.dumps({Header.a.value: get_secret(self.p, self.g, self.a)}).encode()
-                self.sock.sendall(bytes(json_msg))
 
-                self.s = get_secret(self.p, self.b, self.a)
+                try:
+                    self.sock.sendall(bytes(json_msg))
+                except ConnectionResetError:
+                    print('Server closed connection - closing')
+                    return
+
+                try:
+                    self.s = get_secret(self.p, self.b, self.a)
+                except ArithmeticError:
+                    print(sys.stderr, 'Got wrong secret - closing connection')
+                    return
+
                 print(sys.stdout, 'recalculated secret: ', self.s)
 
             if Header.msg.value in data:

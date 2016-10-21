@@ -10,6 +10,7 @@ from lab1.enums import Header, Encode
 from lab1.msg_helper import handle_resp_message, prepare_message_to_send, receive_message
 
 clients = []
+
 message_que = []
 
 
@@ -28,6 +29,7 @@ class Message:
 
 
 class ClientHandler:
+    thread_stop = False
     handled_que_size = 0
     sock = None
     encode = None
@@ -46,9 +48,13 @@ class ClientHandler:
     def __init__(self, connection, thread_id):
         self.sock = connection
         self.id = thread_id
-        self.encode = Encode.xor.value
+        self.encode = Encode.none.value
 
-        self.exchange_params()
+        try:
+            self.exchange_params()
+        except ConnectionAbortedError:
+            self.sock.close()
+            return
 
         print(sys.stdout, 'client connected')
         thread = Thread(target=self.wait_for_msg)
@@ -56,8 +62,9 @@ class ClientHandler:
 
         self.send_msg()
 
-        # TODO clean thread from clients array
-        print(sys.stderr, 'end of init')
+        self.thread_stop = True
+        thread.join()
+
         self.sock.close()
 
     def randomize_secrets(self):
@@ -68,27 +75,33 @@ class ClientHandler:
     def exchange_params(self):
         self.randomize_secrets()
 
-        data = receive_message(self.sock)
-        if Header.req.value in data:
-            json_msg = json.dumps({Header.p.value: self.p, Header.g.value: self.g}).encode()
-            self.sock.sendall(bytes(json_msg))
-        else:
-            # TODO Wrong starting request?
-            pass
+        while True:     # Wait for proper initialization
+            data = receive_message(self.sock)
+            if Header.req.value in data:
+                json_msg = json.dumps({Header.p.value: self.p, Header.g.value: self.g}).encode()
+                self.sock.sendall(bytes(json_msg))
+                break
 
         json_msg = json.dumps({Header.b.value: get_secret(self.p, self.g, self.b)}).encode()
         self.sock.sendall(bytes(json_msg))
 
-        data = receive_message(self.sock)
-        if Header.a.value in data:
-            self.a = data[Header.a.value]
-        else:
-            # TODO No a?
-            pass
+        while True:     # wait for a
+            data = receive_message(self.sock)
+            if Header.a.value in data:
+                self.a = data[Header.a.value]
 
-        self.s = get_secret(self.p, self.a, self.b)
-        print(sys.stderr, 'got secret', self.s)
-        print(sys.stderr, 'params exchanged')
+                if self.a < 1:
+                    print(sys.stderr, "Got wrong parameter - closing connection")
+                    raise ConnectionAbortedError
+                break
+
+        try:
+            self.s = get_secret(self.p, self.a, self.b)
+        except ArithmeticError:
+            print(sys.stderr, "Got wrong secret - closing connection")
+            raise ConnectionAbortedError
+
+        print(sys.stderr, 'params exchanged', self.s)
 
     def refresh_secret(self):
         self.randomize_secrets()
@@ -101,57 +114,92 @@ class ClientHandler:
         if Header.a.value in data:
             self.a = data[Header.a.value]
 
-        self.s = get_secret(self.p, self.a, self.b)
+            if self.a < 1:
+                print(sys.stderr, "Got wrong parameter - closing connection")
+                raise ConnectionAbortedError
+
+        try:
+            self.s = get_secret(self.p, self.a, self.b)
+        except ArithmeticError:
+            print(sys.stderr, "Got wrong secret - closing connection")
+            raise ConnectionAbortedError
+
         print(sys.stderr, 'recalculated secret', self.s)
 
     def wait_for_msg(self):
-        try:
-            while True:
+        while True:
+            try:
                 data = receive_message(self.sock)
-                print(sys.stdout, 'received ', data)
+            except ConnectionError:
+                print(sys.stderr, "Connection error - client has left conversation")
+                return
 
-                correct_msg = False
-                if Header.req.value in data:
-                    correct_msg = True
+            print(sys.stdout, 'received ', data)
+
+            correct_msg = False
+            if Header.req.value in data:
+                correct_msg = True
+
+                try:
                     self.refresh_secret()
+                except ConnectionAbortedError:
+                    return
 
-                if Header.enc.value in data:
-                    correct_msg = True
-                    if data[Header.enc.value] in Encode.__members__:
-                        self.encode = Encode[data[Header.enc.value]].value
-                    else:
-                        print(sys.stderr, "not supported encoding")     # TODO inform client?
+            if Header.enc.value in data:
+                correct_msg = True
+                if data[Header.enc.value] in Encode.__members__:
+                    self.encode = Encode[data[Header.enc.value]].value
+                else:
+                    print(sys.stderr, "not supported encoding")     # TODO inform client?
 
-                if Header.msg.value in data:
-                    msg = handle_resp_message(self.encode, self.s, data[Header.msg.value])
-                    print(sys.stdout, 'decrypted: ', msg)
+            if Header.msg.value in data:
+                msg = handle_resp_message(self.encode, self.s, data[Header.msg.value])
+                print(sys.stdout, 'decrypted: ', msg)
 
-                    if Header.who.value in data:
-                        message_que.append(Message(data[Header.who.value], str(msg), self.id))
-                    else:
-                        message_que.append(Message(None, str(msg), self.id))
-                    correct_msg = True
+                if Header.who.value in data:
+                    message_que.append(Message(data[Header.who.value], str(msg), self.id))
+                else:
+                    message_que.append(Message(None, str(msg), self.id))
+                correct_msg = True
 
-                if not correct_msg:
-                    print(sys.stderr, 'unknown header')
-        finally:
-            print(sys.stderr, 'finally wait_for_msg')
+            if not correct_msg:
+                print(sys.stderr, 'unknown header')
 
     def send_msg(self):
-        try:
-            while True:
-                if self.handled_que_size == len(message_que):
-                    sleep(0.2)  # seconds
-                else:
-                    if message_que[self.handled_que_size].id != self.id:
-                        msg = message_que[self.handled_que_size].msg
-                        who = message_que[self.handled_que_size].who
-                        print(sys.stdout, 'sending [' + who + ']: ' + msg)
+        while True:
+            if self.handled_que_size == len(message_que):
+                sleep(0.2)  # seconds
+            else:
+                if message_que[self.handled_que_size].id != self.id:
+                    msg = message_que[self.handled_que_size].msg
+                    who = message_que[self.handled_que_size].who
+                    print(sys.stdout, 'sending [' + who + ']: ' + msg)
 
+                    try:
                         self.sock.sendall(prepare_message_to_send(self.encode, self.s, msg, who))
-                    self.handled_que_size += 1
-        finally:
-            print(sys.stderr, 'finally send_msg')
+                    except ConnectionResetError:
+                        print(sys.stderr, "Cant send message - client have left conversation")
+                        return
+
+                self.handled_que_size += 1
+
+            # file descriptor == -1 means socket is closed
+            if self.thread_stop or self.sock.fileno() == -1:
+                return
+
+
+def server_quit(sock):
+    while True:
+        cmd = input()
+
+        if "/q" in cmd:
+            sock.close()
+
+            for client in clients:
+                print('closing')
+                client[0].close()
+                client[1].join()
+            return
 
 
 def main():
@@ -161,14 +209,23 @@ def main():
     sock.bind(server_address)
     sock.listen()
 
+    leave_thread = Thread(target=server_quit, args=(sock, ))
+    leave_thread.start()
+
     thread_id = 0
+    print(sys.stderr, 'waiting for a connection')
     while True:
-        print(sys.stderr, 'waiting for a connection')
-        connection, client_address = sock.accept()
+        try:
+            connection, client_address = sock.accept()
+        except OSError:
+            print(sys.stdout, 'Closing server')
+            break
 
         thread = Thread(target=ClientHandler, args=(connection, thread_id, ))
         thread.start()
-        clients.append(thread)
+        clients.append([connection, thread])
         thread_id += 1
+
+    leave_thread.join()
 
 main()

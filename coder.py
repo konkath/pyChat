@@ -3,7 +3,21 @@ from _operator import xor
 from math import sqrt
 
 
+def is_prime(number):
+    if number < 1:
+        return False
+
+    for i in range(2, int(sqrt(number))):
+        if (number % i) == 0:
+            return False
+
+    return True
+
+
 def get_secret(prime, base, power):
+    if not is_prime(prime) or base < 1 or base >= prime or power < 1:
+        raise ArithmeticError
+
     mod = 1
 
     i = 0
@@ -15,17 +29,14 @@ def get_secret(prime, base, power):
 
 
 def get_closest_prime(number):
-    if number > 1:
-        while True:
-            for i in range(2, int(sqrt(number))):
-                if (number % i) == 0:
-                    number += 1
-                    break
-            else:
-                print(number)
-                return number
-    else:
-        return 1
+    if number < 3:
+        return 3
+
+    while True:
+        if not is_prime(number):
+            number += 1
+        else:
+            return number
 
 
 def xor_coder(secret, msg):
