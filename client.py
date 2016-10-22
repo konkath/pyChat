@@ -1,5 +1,6 @@
 import socket
 import sys
+import threading
 from random import randint
 from threading import Thread
 import json
@@ -10,6 +11,7 @@ from lab1.msg_helper import handle_resp_message, prepare_message_to_send, receiv
 
 
 class Client:
+    secret_lock = threading.Lock()      # lock for p, g, a, s params
     myName = None
     sock = None
     encode = None
@@ -57,6 +59,7 @@ class Client:
         except ConnectionResetError:
             raise ConnectionAbortedError
 
+        self.secret_lock.acquire()
         # In case server gives p and g in separate messages
         while not self.p or not self.g:
             data = receive_message(self.sock)
@@ -64,13 +67,18 @@ class Client:
                 self.p = data[Header.p.value]
 
                 if not is_prime(self.p):
+                    self.secret_lock.release()
                     raise ConnectionAbortedError
 
             if Header.g.value in data:
                 self.g = data[Header.g.value]
 
                 if self.g < 1 or self.g >= self.p:
+                    self.secret_lock.release()
                     raise ConnectionAbortedError
+
+            if not self.p or not self.g:
+                print(sys.stderr, 'waiting for p and g')
 
         self.a = randint(self.smallest_a, self.largest_a)
         json_msg = json.dumps({Header.a.value: get_secret(self.p, self.g, self.a)}).encode()
@@ -80,8 +88,11 @@ class Client:
             data = receive_message(self.sock)
             if Header.b.value in data:
                 self.b = data[Header.b.value]
+                break
+            print(sys.stderr, 'waiting for b')
 
         self.s = get_secret(self.p, self.b, self.a)
+        self.secret_lock.release()
         print(sys.stderr, 'params exchanged')
 
     def send_msg(self):
@@ -94,7 +105,6 @@ class Client:
                 if "/enc " in message:
                     splitted = message.split(" ")
 
-                    print(splitted[1])
                     if splitted[1] in Encode.__members__:
                         self.encode = Encode[splitted[1]].value
                         json_msg = json.dumps({Header.enc.value: splitted[1]}).encode()
@@ -108,11 +118,13 @@ class Client:
                 elif "/q" in message:
                     self.sock.close()   # shouldn't terminate program like that but... exceptions will do rest
                 else:
+                    self.secret_lock.acquire()
                     self.sock.sendall(prepare_message_to_send(self.encode, self.s, message, self.myName))
+                    self.secret_lock.release()
             except ConnectionResetError:
                 print(sys.stderr, 'Server closed - closing connection')
 
-    def check_params(self):
+    def check_params(self):     # no need to lock params as it is used only in one locked place
         if not is_prime(self.p) or self.g < 1 or self.g >= self.p or self.b < 1:
             return False
 
@@ -127,6 +139,7 @@ class Client:
                 return
 
             if Header.p.value in data or Header.g.value in data or Header.b.value in data:
+                self.secret_lock.acquire()
                 if Header.p.value in data:
                     self.p = data[Header.p.value]
 
@@ -138,6 +151,7 @@ class Client:
 
                 if not self.check_params():
                     print(sys.stderr, 'Got wrong parameters - Closing connection')
+                    self.secret_lock.release()
                     return
 
                 self.a = randint(self.smallest_a, self.largest_a)
@@ -146,7 +160,8 @@ class Client:
                 try:
                     self.sock.sendall(bytes(json_msg))
                 except ConnectionResetError:
-                    print('Server closed connection - closing')
+                    print(sys.stderr, 'Server closed connection - closing')
+                    self.secret_lock.release()
                     return
 
                 try:
@@ -154,11 +169,15 @@ class Client:
                 except ArithmeticError:
                     print(sys.stderr, 'Got wrong secret - closing connection')
                     return
+                finally:
+                    self.secret_lock.release()
 
                 print(sys.stdout, 'recalculated secret: ', self.s)
 
             if Header.msg.value in data:
+                self.secret_lock.acquire()
                 msg = handle_resp_message(self.encode, self.s, data[Header.msg.value])
+                self.secret_lock.release()
                 if Header.who.value in data:
                     print(sys.stdout, '[' + data[Header.who.value] + ']: ' + str(msg))
                 else:

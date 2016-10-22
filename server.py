@@ -1,5 +1,6 @@
 import socket
 import sys
+import threading
 from asyncio.tasks import sleep
 from random import randint
 from threading import Thread
@@ -17,12 +18,12 @@ message_que = []
 class Message:
     who = None
     msg = None
-    id = None
+    thread_id = None
 
-    def __init__(self, who, msg, id):
+    def __init__(self, who, msg, thread_id):
         self.who = who
         self.msg = msg
-        self.id = id
+        self.thread_id = thread_id
 
     def __str__(self):
         return '[' + self.who + ']: ' + self.msg
@@ -30,6 +31,7 @@ class Message:
 
 class ClientHandler:
     thread_stop = False
+    secret_lock = threading.Lock()      # lock for p, g, b, s params
     handled_que_size = 0
     sock = None
     encode = None
@@ -43,11 +45,11 @@ class ClientHandler:
     a = None    # Server don't have this
     b = None
     s = None
-    id = None
+    thread_id = None
 
     def __init__(self, connection, thread_id):
         self.sock = connection
-        self.id = thread_id
+        self.thread_id = thread_id
         self.encode = Encode.none.value
 
         try:
@@ -68,19 +70,23 @@ class ClientHandler:
         self.sock.close()
 
     def randomize_secrets(self):
+        self.secret_lock.acquire()
         self.p = get_closest_prime(randint(self.smallest_prime, self.largest_prime))
         self.g = randint(self.smallest_generator, self.p - 1)
         self.b = randint(self.smallest_b, self.largest_b)
+        self.secret_lock.release()
 
     def exchange_params(self):
         self.randomize_secrets()
 
+        self.secret_lock.acquire()
         while True:     # Wait for proper initialization
             data = receive_message(self.sock)
             if Header.req.value in data:
                 json_msg = json.dumps({Header.p.value: self.p, Header.g.value: self.g}).encode()
                 self.sock.sendall(bytes(json_msg))
                 break
+            print(sys.stderr, 'waiting got request keys')
 
         json_msg = json.dumps({Header.b.value: get_secret(self.p, self.g, self.b)}).encode()
         self.sock.sendall(bytes(json_msg))
@@ -91,38 +97,49 @@ class ClientHandler:
                 self.a = data[Header.a.value]
 
                 if self.a < 1:
-                    print(sys.stderr, "Got wrong parameter - closing connection")
+                    print(sys.stderr, 'Got wrong parameter - closing connection')
+                    self.secret_lock.release()
                     raise ConnectionAbortedError
                 break
+            print(sys.stderr, 'waiting for a')
 
         try:
             self.s = get_secret(self.p, self.a, self.b)
         except ArithmeticError:
-            print(sys.stderr, "Got wrong secret - closing connection")
+            print(sys.stderr, 'Got wrong secret - closing connection')
             raise ConnectionAbortedError
+        finally:
+            self.secret_lock.release()
 
         print(sys.stderr, 'params exchanged', self.s)
 
     def refresh_secret(self):
         self.randomize_secrets()
 
+        self.secret_lock.acquire()
         json_msg = json.dumps({Header.p.value: self.p, Header.g.value: self.g,
                                Header.b.value: get_secret(self.p, self.g, self.b)}).encode()
         self.sock.sendall(bytes(json_msg))
 
-        data = receive_message(self.sock)
-        if Header.a.value in data:
-            self.a = data[Header.a.value]
+        while True:     # wait for a
+            data = receive_message(self.sock)
+            if Header.a.value in data:
+                self.a = data[Header.a.value]
 
-            if self.a < 1:
-                print(sys.stderr, "Got wrong parameter - closing connection")
-                raise ConnectionAbortedError
+                if self.a < 1:
+                    print(sys.stderr, 'Got wrong parameter - closing connection')
+                    self.secret_lock.release()
+                    raise ConnectionAbortedError
+                break
+            print(sys.stderr, 'Waiting for a parameter')
 
         try:
             self.s = get_secret(self.p, self.a, self.b)
         except ArithmeticError:
-            print(sys.stderr, "Got wrong secret - closing connection")
+            print(sys.stderr, 'Got wrong secret - closing connection')
             raise ConnectionAbortedError
+        finally:
+            self.secret_lock.release()
 
         print(sys.stderr, 'recalculated secret', self.s)
 
@@ -131,10 +148,8 @@ class ClientHandler:
             try:
                 data = receive_message(self.sock)
             except ConnectionError:
-                print(sys.stderr, "Connection error - client has left conversation")
+                print(sys.stderr, 'Connection error - client has left conversation')
                 return
-
-            print(sys.stdout, 'received ', data)
 
             correct_msg = False
             if Header.req.value in data:
@@ -150,16 +165,17 @@ class ClientHandler:
                 if data[Header.enc.value] in Encode.__members__:
                     self.encode = Encode[data[Header.enc.value]].value
                 else:
-                    print(sys.stderr, "not supported encoding")     # TODO inform client?
+                    print(sys.stderr, 'not supported encoding')     # TODO inform client?
 
             if Header.msg.value in data:
+                self.secret_lock.acquire()
                 msg = handle_resp_message(self.encode, self.s, data[Header.msg.value])
-                print(sys.stdout, 'decrypted: ', msg)
+                self.secret_lock.release()
 
                 if Header.who.value in data:
-                    message_que.append(Message(data[Header.who.value], str(msg), self.id))
+                    message_que.append(Message(data[Header.who.value], str(msg), self.thread_id))
                 else:
-                    message_que.append(Message(None, str(msg), self.id))
+                    message_que.append(Message(None, str(msg), self.thread_id))
                 correct_msg = True
 
             if not correct_msg:
@@ -170,16 +186,18 @@ class ClientHandler:
             if self.handled_que_size == len(message_que):
                 sleep(0.2)  # seconds
             else:
-                if message_que[self.handled_que_size].id != self.id:
+                if message_que[self.handled_que_size].thread_id != self.thread_id:
                     msg = message_que[self.handled_que_size].msg
                     who = message_que[self.handled_que_size].who
-                    print(sys.stdout, 'sending [' + who + ']: ' + msg)
 
+                    self.secret_lock.acquire()
                     try:
                         self.sock.sendall(prepare_message_to_send(self.encode, self.s, msg, who))
                     except ConnectionResetError:
-                        print(sys.stderr, "Cant send message - client have left conversation")
+                        print(sys.stderr, 'Cant send message - client have left conversation')
                         return
+                    finally:
+                        self.secret_lock.release()
 
                 self.handled_que_size += 1
 
