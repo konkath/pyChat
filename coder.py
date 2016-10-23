@@ -4,10 +4,10 @@ from math import sqrt
 
 
 def is_prime(number):
-    if number < 1:
+    if number < 3:
         return False
 
-    for i in range(2, int(sqrt(number))):
+    for i in range(2, int(sqrt(number)) + 1):
         if (number % i) == 0:
             return False
 
@@ -52,8 +52,8 @@ def encrypt_caesar(secret, msg):
     coded_msg = ""
     for m in msg:
         # str m must be casted to ascii (ord) to shift it by last byte of secret
-        # result is normalized using modulo
-        coded_msg += chr(((0xFF & secret) + ord(m)) % 0xFF)
+        # result is normalized using 2 bytes modulo (polish signs in utf-8)
+        coded_msg += chr(((0xFF & secret) + ord(m)) % 0xFFFF)
 
     return coded_msg
 
@@ -62,7 +62,7 @@ def decrypt_caesar(secret, msg):
     coded_msg = ""
     for m in msg:
         # str m must be casted to ascii (ord) to shift it by last byte of secret
-        # result is normalized using modulo
-        coded_msg += chr((ord(m) - (0xFF & secret)) % 0xFF)
+        # result is normalized using 2 bytes modulo (polish signs in utf-8)
+        coded_msg += chr((ord(m) - (0xFF & secret)) % 0xFFFF)
 
     return coded_msg
