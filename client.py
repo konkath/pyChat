@@ -77,6 +77,13 @@ class Client:
                     self.secret_lock.release()
                     raise ConnectionAbortedError
 
+            if Header.b.value in data:
+                self.b = data[Header.b.value]
+
+                if self.b < 1:
+                    self.secret_lock.release()
+                    raise ConnectionAbortedError
+
             if not self.p or not self.g:
                 print(sys.stderr, 'waiting for p and g')
 
@@ -88,7 +95,10 @@ class Client:
             data = receive_message(self.sock)
             if Header.b.value in data:
                 self.b = data[Header.b.value]
-                break
+
+                if self.b < 1:
+                    self.secret_lock.release()
+                    raise ConnectionAbortedError
             print(sys.stderr, 'waiting for b')
 
         self.s = get_secret(self.p, self.b, self.a)
